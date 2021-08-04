@@ -1,0 +1,168 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otlp-producer
+  namespace: default
+  labels:
+    name: otlp-producer
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      name: otlp-producer
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/port: '8000'
+      labels:
+        name: otlp-producer
+    spec:
+      serviceAccountName: otlp-generator
+      containers:
+        - name: otlp-producer
+          image: OTLP_TEST_PRODUCER
+          env:
+          - name: OTEL_EXPORTER_OTLP_ENDPOINT
+            value: "otlp-service.amazon-cloudwatch:4317"
+          - name: OTEL_METRICS_EXPORTER_OTLP_ENDPOINT
+            value: "otlp-service.amazon-cloudwatch"
+          - name: OTEL_RESOURCE_ATTRIBUTES
+            value: "service.namespace=default,service.name=otlp-producer"
+          - name: QUEUE_NAME
+            value: cloudwatch_test_queue
+          imagePullPolicy: Always
+          ports:
+            - name: oltp-producer
+              containerPort: 8000
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otlp-consumer
+  namespace: default
+  labels:
+    name: otlp-consumer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: otlp-consumer
+  template:
+    metadata:
+      labels:
+        name: otlp-consumer
+    spec:
+      serviceAccountName: otlp-generator
+      containers:
+        - name: otlp-consumer
+          image: OTLP_TEST_CONSUMER
+          env:
+          - name: OTEL_EXPORTER_OTLP_ENDPOINT
+            value: "otlp-service.amazon-cloudwatch:4317"
+          - name: OTEL_RESOURCE_ATTRIBUTES
+            value: "service.namespace=default,service.name=otlp-consumer"
+          - name: QUEUE_NAME
+            value: cloudwatch_test_queue
+          imagePullPolicy: Always
+
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otlp-consumer
+  namespace: default
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    protocol: TCP
+    targetPort: 8080
+  selector:
+    name: otlp-consumer
+
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otlp-producer
+  namespace: default
+  annotations:
+    prometheus.io/scrape: 'true'
+    prometheus.io/port: '8000'
+spec:
+  type: ClusterIP
+  ports:
+    - name: oltp-producer
+      port: 8000
+      protocol: TCP
+  selector:
+    name: otlp-producer
+
+---
+apiVersion: metrics.aws/v1alpha1
+kind: ExternalMetric
+metadata:
+  name: test-queue-length
+spec:
+  name: test-queue-length
+  resource:
+    resource: "deployment"
+  queries:
+    - id: sqs_test
+      metricStat:
+        metric:
+          namespace: "AWS/SQS"
+          metricName: "ApproximateNumberOfMessagesVisible"
+          dimensions:
+            - name: QueueName
+              value: "cloudwatch_test_queue"
+        period: 300
+        stat: Average
+        unit: Count
+      returnData: true
+
+---
+kind: HorizontalPodAutoscaler
+apiVersion: autoscaling/v2beta1
+metadata:
+  name: otlp-consumer-scaler
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: otlp-consumer
+  minReplicas: 1
+  maxReplicas: 10
+  metrics:
+  - type: External
+    external:
+      metricName: test-queue-length
+      targetAverageValue: 30
+
+---
+apiVersion: cw.aws.com/v1
+kind: cloudwatchmetricalarm
+metadata:
+  namespace: default
+  name: otlp-consumer-alarm
+spec:
+  MetricName: service_number_of_running_pods
+  CloudwatchMetricNamespace: ContainerInsights
+  Statistic: Maximum
+  Dimensions:
+      - Name: ClusterName
+        Value: cloudwatch-example-cluster
+      - Name: Service
+        Value: otlp-consumer
+      - Name: Namespace
+        Value: default
+  Period: 300
+  EvaluationPeriods: 1
+  DatapointsToAlarm: 1
+  Threshold: 8
+  ComparisonOperator: GreaterThanThreshold
+  TreatMissingData: missing

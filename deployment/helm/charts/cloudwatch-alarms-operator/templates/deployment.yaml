@@ -1,0 +1,35 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudwatchalarm-controller
+  namespace: amazon-cloudwatch
+  labels:
+    app: cloudwatchalarm
+spec:
+  replicas: {{.Values.replicas}}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: cloudwatchalarm
+      role: operator
+  template:
+    metadata:
+      labels:
+        app: cloudwatchalarm
+        role: operator
+      annotations:
+        prometheus.io/scrape: 'false'
+    spec:
+      serviceAccountName: cloudwatchalarm-controller
+      containers:
+        - name: cloudwatchalarm
+          image: {{ .Values.image }}
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

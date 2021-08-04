@@ -1,0 +1,7 @@
+botocore
+boto3
+opentelemetry-api
+opentelemetry-sdk
+opentelemetry-exporter-otlp
+opentelemetry-sdk-extension-aws
+opentelemetry-instrumentation-botocore

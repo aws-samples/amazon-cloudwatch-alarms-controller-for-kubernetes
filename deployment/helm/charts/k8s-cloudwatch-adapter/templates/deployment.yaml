@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: k8s-cloudwatch-adapter
+    {{- include "k8s-cloudwatch-adapter.labels" . | nindent 4 }}
+    {{- with .Values.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  name: {{ include "k8s-cloudwatch-adapter.fullname" . }}
+  namespace: amazon-cloudwatch
+  {{- if .Values.annotations }}
+  annotations: {{ toYaml .Values.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "k8s-cloudwatch-adapter.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- if .Values.podAnnotations }}
+      annotations: {{ toYaml .Values.podAnnotations | nindent 8 }}
+      {{- end }}
+      labels:
+        app: k8s-cloudwatch-adapter
+        {{- include "k8s-cloudwatch-adapter.selectorLabels" . | nindent 8 }}
+      {{- if .Values.podLabels }}
+        {{- toYaml .Values.podLabels | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: k8s-cloudwatch-adapter
+      securityContext:
+        fsGroup: 65534
+      containers:
+      - name: {{ include "k8s-cloudwatch-adapter.fullname" . }}
+        image: chankh/k8s-cloudwatch-adapter:v0.10.0
+        imagePullPolicy: "{{ .Values.image.pullPolicy }}"
+        args:
+        - /adapter
+        {{- range $key, $val := .Values.args }}
+        - --{{ $key }}={{ $val }}
+        {{- end }}
+        ports:
+        - containerPort: 6443
+          name: https
+        - containerPort: 8080
+          name: http
+        volumeMounts:
+        - mountPath: /tmp
+          name: temp-vol
+        resources:
+          limits:
+            cpu: 1000m
+            memory: 256Mi
+          requests:
+            cpu: 500m
+            memory: 256Mi
+      volumes:
+      - name: temp-vol
+        emptyDir: {}

@@ -1,0 +1,47 @@
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: otlp-daemon
+  namespace: amazon-cloudwatch
+spec:
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: otlp-daemon
+  template:
+    metadata:
+      labels:
+        app: otlp-daemon
+    spec:
+      serviceAccountName: otlp-daemon
+      containers:
+        - name: otlp-daemon
+          image: public.ecr.aws/aws-observability/aws-otel-collector:latest
+          command:
+            - "/awscollector"
+            - "--config=/otlp-config/otlp-config.yaml"
+            - "--log-level=DEBUG"
+          resources:
+            limits:
+              cpu:  256m
+              memory: 512Mi
+            requests:
+              cpu: 32m
+              memory: 24Mi
+          ports:
+            - name: otlp-http
+              containerPort: 55681
+            - name: otlp-grpc
+              containerPort: 4317
+            - name: otlp-statsd
+              containerPort: 8125
+          volumeMounts:
+            - name: otlp-config-volume
+              mountPath: /otlp-config
+              readOnly: true
+      volumes:
+        - name: otlp-config-volume
+          configMap:
+            name: "otlp-config"

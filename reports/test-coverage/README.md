@@ -1,0 +1,1 @@
+This folder holds test-coverage report and data when execute `docker-compose run test-coverage` but contents won't be tracked in git.

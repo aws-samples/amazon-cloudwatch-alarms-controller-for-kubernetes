@@ -1,0 +1,45 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cloudwatchalarm-controller-role
+  labels:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/name: cloudwatchalarm-controller
+rules:
+- apiGroups:
+  - cw.aws.com
+  resources:
+  - cloudwatchcompositalarms
+  - cloudwatchmetricalarms
+  verbs:
+  - '*'
+- apiGroups: [apiextensions.k8s.io]
+  resources: [customresourcedefinitions]
+  verbs: [list, watch]
+- apiGroups: [""]
+  resources: [namespaces]
+  verbs: [list, watch]
+- apiGroups: [admissionregistration.k8s.io/v1, admissionregistration.k8s.io/v1beta1]
+  resources: [validatingwebhookconfigurations, mutatingwebhookconfigurations]
+  verbs: [create, patch]
+- apiGroups: [""]
+  resources: [events]
+  verbs: [create, patch, list, watch, delete]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cloudwatchalarm-controller-rolebinding
+  labels:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/name: cloudwatchalarm-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cloudwatchalarm-controller-role
+subjects:
+- kind: ServiceAccount
+  name: cloudwatchalarm-controller
+  namespace: amazon-cloudwatch

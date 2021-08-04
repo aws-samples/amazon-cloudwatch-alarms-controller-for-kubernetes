@@ -1,0 +1,63 @@
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: cloudwatch-example-cluster
+  region: us-east-1
+
+managedNodeGroups:
+  - name: ng-1
+    instanceType: m5.xlarge
+    minSize: 2
+    maxSize: 4
+    desiredCapacity: 3
+
+vpc:
+  clusterEndpoints:
+    publicAccess:  true
+    privateAccess: true
+
+iam:
+  withOIDC: true
+  serviceAccounts:
+    - metadata:
+        name: cloudwatchalarm-controller
+        namespace: amazon-cloudwatch
+        labels: {app: cloudwatchalarm-controller}
+      roleName: cloudwatchalarm-controller
+      attachPolicyARNs:
+        - arn:aws:iam::aws:policy/CloudWatchFullAccess
+    - metadata:
+        name: cloudwatch-agent
+        namespace: amazon-cloudwatch
+      roleName: cloudwatch-agent
+      attachPolicyARNs:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+    - metadata:
+        name: fluent-bit
+        namespace: amazon-cloudwatch
+      roleName: fluent-bit
+      attachPolicyARNs:
+        - arn:aws:iam::aws:policy/CloudWatchFullAccess
+    - metadata:
+        name: otlp-daemon
+        namespace: amazon-cloudwatch
+      roleName: otlp-daemon
+      attachPolicyARNs:
+        - arn:aws:iam::aws:policy/CloudWatchFullAccess
+        - arn:aws:iam::aws:policy/AWSXrayFullAccess
+    - metadata:
+        name: k8s-cloudwatch-adapter
+        namespace: amazon-cloudwatch
+      roleName: k8s-cloudwatch-adapter
+      attachPolicyARNs:
+        - arn:aws:iam::aws:policy/CloudWatchFullAccess
+    - metadata:
+        name: otlp-generator
+        namespace: default
+      roleName: otlp-generator
+      attachPolicyARNs:
+        - arn:aws:iam::aws:policy/AdministratorAccess
+
+
+

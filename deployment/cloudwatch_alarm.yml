@@ -1,0 +1,73 @@
+
+---
+apiVersion: cw.aws.com/v1
+kind: cloudwatchmetricalarm
+metadata:
+  namespace: kube-system
+  name: kube-dns-alarm
+spec:
+  EvaluationPeriods: 4
+  DatapointsToAlarm: 2
+  ComparisonOperator: LessThanLowerOrGreaterThanUpperThreshold
+  ThresholdMetricId: ad1
+  Metrics:
+    - Id: "m1"
+      ReturnData: true
+      MetricStat:
+        Metric:
+          Namespace: ContainerInsights
+          MetricName: pod_cpu_utilization
+          Dimensions:
+            - Name: ClusterName
+              Value: cloudwatch-example-cluster
+            - Name: Serivce
+              Value: kube-dns
+            - Name: Namespace
+              Value: kube-system
+        Period: 10
+        Stat: p95
+    - Id: ad1
+      Label: pod_cpu_utilization (expected)
+      ReturnData: true
+      Expression: ANOMALY_DETECTION_BAND(m1, 2)
+
+---
+apiVersion: cw.aws.com/v1
+kind: cloudwatchmetricalarm
+metadata:
+  namespace: kube-system
+  name: cwagent-prometheus-alarm
+spec:
+  EvaluationPeriods: 4
+  DatapointsToAlarm: 2
+  ComparisonOperator: LessThanLowerOrGreaterThanUpperThreshold
+  ThresholdMetricId: ad1
+  Metrics:
+    - Id: "m1"
+      ReturnData: true
+      MetricStat:
+        Metric:
+          Namespace: ContainerInsights
+          MetricName: pod_cpu_utilization
+          Dimensions:
+            - Name: ClusterName
+              Value: cloudwatch-example-cluster
+            - Name: Serivce
+              Value: cwagent-prometheus
+            - Name: Namespace
+              Value: amazon-cloudwatch
+        Period: 10
+        Stat: p95
+    - Id: ad1
+      Label: pod_cpu_utilization (expected)
+      ReturnData: true
+      Expression: ANOMALY_DETECTION_BAND(m1, 2)
+
+---
+apiVersion: cw.aws.com/v1
+kind: cloudwatchcompositalarm
+metadata:
+  namespace: kube-system
+  name: composit-alarm
+spec:
+  AlarmRule: ALARM("kube-system-cwagent-prometheus-alarm") OR ALARM("kube-system-kube-dns-alarm")
