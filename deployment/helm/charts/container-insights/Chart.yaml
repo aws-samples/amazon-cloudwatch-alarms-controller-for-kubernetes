@@ -1,6 +1,6 @@
 apiVersion: v2
 name: container-insights
-description: Southwest Airlines implementation of cloudwatch container insights
+description: cloudwatch container insights
 
 # A chart can be either an 'application' or a 'library' chart.
 #

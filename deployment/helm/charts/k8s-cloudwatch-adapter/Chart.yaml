@@ -1,6 +1,6 @@
 apiVersion: v2
 name: k8s-cloudwatch-adapter
-description: Southwest Airlines implementation k8s-cloudwatch-adapter
+description: k8s-cloudwatch-adapter
 
 # A chart can be either an 'application' or a 'library' chart.
 #
