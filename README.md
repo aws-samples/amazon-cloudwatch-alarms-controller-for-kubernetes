@@ -1,4 +1,4 @@
-# Amazon cloudwatch alarms controller for kubernetes
+# Amazon Cloudwatch Alarms Controller for Kubernetes
 
 This repo is a custom controller for kubernetes that when installed in a cluster grantes the cluster access to the Cloudwatch metrics alarms api. Thus, allowing developers to define alarms from their kubernetes manifests.
 
