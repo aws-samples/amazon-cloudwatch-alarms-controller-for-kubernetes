@@ -1,0 +1,147 @@
+---
+# Configuration for AWS OpenTelemetry collector daemon
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otlp-config
+  namespace: amazon-cloudwatch
+data:
+  otlp-config.yaml: |-
+    extensions:
+      health_check:
+
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:55681
+      awsxray:
+        endpoint: 0.0.0.0:2000
+        transport: udp
+        proxy_server:
+          endpoint: 0.0.0.0:2000
+      statsd:
+        endpoint: 0.0.0.0:8125 #default
+        aggregation_interval: 60s #default
+        enable_metric_type: false #default
+        timer_histogram_mapping: #default
+          - statsd_type: "histogram" #default
+            observer_type: "gauge" #default
+          - statsd_type: "timer" #default
+            observer_type: "gauge" #default
+      prometheus:
+        config:
+          global:
+            scrape_interval: 15s
+            scrape_timeout: 10s
+          scrape_configs:
+          - job_name: 'kubernetes-pods'
+            sample_limit: 10000
+            kubernetes_sd_configs:
+            - role: pod
+            tls_config:
+              ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+              insecure_skip_verify: true
+            bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+            relabel_configs:
+            - action: keep
+              regex: true
+              source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+            - action: labelmap
+              regex: __meta_kubernetes_pod_label_(.+)
+            - action: replace
+              source_labels: [__meta_kubernetes_namespace]
+              target_label: Namespace
+            - action: replace
+              source_labels: [__meta_kubernetes_pod_name]
+              target_label: pod_name
+            - action: replace
+              source_labels: [__meta_kubernetes_pod_container_name]
+              target_label: container_name
+            - action: replace
+              source_labels: [__meta_kubernetes_pod_controller_name]
+              target_label: pod_controller_name
+            - action: replace
+              source_labels: [__meta_kubernetes_pod_controller_kind]
+              target_label: pod_controller_kind
+            - action: replace
+              source_labels: [__meta_kubernetes_pod_phase]
+              target_label: pod_phase
+            metric_relabel_configs:
+            - action: drop
+              source_labels: [__name__]
+              regex: 'go_gc_duration_seconds.*'
+          - job_name: 'kubernetes-service-endpoints'
+            kubernetes_sd_configs:
+            - role: endpoints
+            tls_config:
+              ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+              insecure_skip_verify: true
+            bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+            relabel_configs:
+            - action: keep
+              regex: true
+              source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+            - action: replace
+              regex: (https?)
+              source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scheme]
+              target_label: __scheme__
+            - action: replace
+              regex: (.+)
+              source_labels: [__meta_kubernetes_service_annotation_prometheus_io_path]
+              target_label: __metrics_path__
+            - action: replace
+              regex: ([^:]+)(?::\d+)?;(\d+)
+              replacement: $$1:$$2
+              source_labels: [__address__,__meta_kubernetes_service_annotation_prometheus_io_port]
+              target_label: __address__
+            - action: labelmap
+              regex: __meta_kubernetes_pod_label_(.+)
+            - action: replace
+              source_labels: [__meta_kubernetes_namespace]
+              target_label: Namespace
+            - action: replace
+              source_labels: [__meta_kubernetes_service_name]
+              target_label: Service
+            - action: replace
+              source_labels: [__meta_kubernetes_pod_node_name]
+              target_label: kubernetes_node
+            - action: replace
+              source_labels: [__meta_kubernetes_pod_name]
+              target_label: pod_name
+            - action: replace
+              source_labels: [__meta_kubernetes_pod_container_name]
+              target_label: container_name
+            metric_relabel_configs:
+            - source_labels: [__name__]
+              regex: 'go_gc_duration_seconds.*'
+              action: drop
+
+    processors:
+      batch/traces:
+        timeout: 1s
+        send_batch_size: 50
+      batch/metrics:
+        timeout: 60s
+
+    exporters:
+      awsxray:
+      awsemf:
+        namespace: EKS/AWSOTel/Application
+        log_group_name: '/aws/eks/application/metrics'
+        region: 'us-east-1'
+
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp,awsxray]
+          processors: [batch/traces]
+          exporters: [awsxray]
+        metrics:
+          receivers: [otlp,statsd,prometheus]
+          processors: [batch/metrics]
+          exporters: [awsemf]
+
+      extensions: [health_check]

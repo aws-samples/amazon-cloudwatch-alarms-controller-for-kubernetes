@@ -1,0 +1,39 @@
+# .coveragerc to control coverage.py
+[run]
+branch = True
+data_file=reports/test-coverage/coverage_data
+
+[report]
+# Regexes for lines to exclude from consideration
+exclude_lines =
+    # Have to re-enable the standard pragma
+    pragma: no cover
+
+    # Don't complain about missing debug-only code:
+    def __repr__
+    if self\\.debug
+
+    # Don't complain if tests don't hit defensive assertion code:
+    raise AssertionError
+    raise NotImplementedError
+
+    # Don't complain if non-runnable code isn't run:
+    if 0:
+    if __name__ == .__main__.:
+
+    # Don't count import and from statements
+    import
+    from
+
+omit =
+    test/*
+    setup.py
+
+ignore_errors = True
+fail_under = 85
+
+[html]
+directory = reports/test-coverage
+
+[xml]
+output = reports/test-coverage/coverage-report.xml

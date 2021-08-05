@@ -1,0 +1,43 @@
+---
+apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  name: cloudwatchmetricalarms.cw.aws.com
+spec:
+  group: cw.aws.com
+  version: v1
+  versions:
+    - name: v1
+      served: true
+      storage: true
+  scope: Namespaced
+  names:
+    kind: cloudwatchmetricalarm
+    plural: cloudwatchmetricalarms
+    singular: cloudwatchmetricalarm
+    shortNames:
+      - cwma
+      - cwmas
+  preserveUnknownFields: true
+
+---
+apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  name: cloudwatchcompositalarms.cw.aws.com
+spec:
+  group: cw.aws.com
+  version: v1
+  versions:
+    - name: v1
+      served: true
+      storage: true
+  scope: Namespaced
+  names:
+    kind: cloudwatchcompositalarm
+    plural: cloudwatchcompositalarms
+    singular: cloudwatchcompositalarm
+    shortNames:
+      - cwca
+      - cwcas
+  preserveUnknownFields: true

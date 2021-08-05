@@ -1,0 +1,21 @@
+---
+# k8s service definition for AWS Open Telemetry daemon headless service
+apiVersion: v1
+kind: Service
+metadata:
+  name: otlp-service
+  namespace: amazon-cloudwatch
+spec:
+  selector:
+    app: otlp-daemon
+  clusterIP: None
+  ports:
+    - name: otlp-http
+      port: 55681
+      protocol: TCP
+    - name: otlp-grpc
+      port: 4317
+      protocol: TCP
+    - name: otlp-statsd
+      port: 8125
+      protocol: UDP
