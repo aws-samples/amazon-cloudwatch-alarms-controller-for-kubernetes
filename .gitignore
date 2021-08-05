@@ -153,8 +153,5 @@ dmypy.json
 integration/runway
 integration/local
 
-# Ignore certs
-SWA_Prod_PKI_Trustbundle*
-
 # Ignore crap
 src/lambdas

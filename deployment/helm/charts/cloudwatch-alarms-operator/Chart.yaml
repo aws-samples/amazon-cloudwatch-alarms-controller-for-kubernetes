@@ -1,6 +1,6 @@
 apiVersion: v2
-name: cluster-autoscaler
-description: Southwest Airlines implementation of cloudwatch container insights
+name: cloudwatch-alarms-operator
+description: cloudwatch container insights
 
 # A chart can be either an 'application' or a 'library' chart.
 #

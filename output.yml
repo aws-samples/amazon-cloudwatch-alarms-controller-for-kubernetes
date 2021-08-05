@@ -1,0 +1,1390 @@
+---
+# Source: amazon-cloudwatch/charts/container-insights/templates/container-insights-config-map.yaml
+# create configmap for cwagent config
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cwagentconfig
+  namespace: amazon-cloudwatch
+data:
+  # Configuration is in Json format. No matter what configure change you make,
+  # please keep the Json blob valid.
+  cwagentconfig.json: |
+    {
+        "agent": {
+            "region": "us-east-1"
+        },
+        "logs": {
+            "metrics_collected": {
+                "kubernetes": {
+                    "cluster_name": "cloudwatch-example-cluster",
+                    "metrics_collection_interval": 60
+                }
+            },
+            "force_flush_interval": 5
+        }
+    }
+---
+# Source: amazon-cloudwatch/charts/container-insights/templates/fluent-bit-config-map.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fluent-bit-config
+  namespace: amazon-cloudwatch
+  labels:
+    k8s-app: fluent-bit-cloudwatch
+data:
+  fluent-bit.conf: |
+    [SERVICE]
+        Flush                     5
+        Log_Level                 info
+        Daemon                    off
+        Parsers_File              parsers.conf
+        HTTP_Server               On
+        HTTP_Listen               0.0.0.0
+        HTTP_PORT                 2020
+        storage.path              /var/fluent-bit/state/flb-storage/
+        storage.sync              normal
+        storage.checksum          off
+        storage.backlog.mem_limit 5M
+
+    @INCLUDE application-log.conf
+    @INCLUDE dataplane-log.conf
+    @INCLUDE host-log.conf
+
+  application-log.conf: |
+    [INPUT]
+        Name                tail
+        Tag                 application.*
+        Exclude_Path        /var/log/containers/cloudwatch-agent*, /var/log/containers/fluent-bit*, /var/log/containers/aws-node*, /var/log/containers/kube-proxy*
+        Path                /var/log/containers/*.log
+        Docker_Mode         On
+        Docker_Mode_Flush   5
+        Docker_Mode_Parser  container_firstline
+        Parser              docker
+        DB                  /var/fluent-bit/state/flb_container.db
+        Mem_Buf_Limit       50MB
+        Skip_Long_Lines     On
+        Refresh_Interval    10
+        Rotate_Wait         30
+        storage.type        filesystem
+        Read_from_Head      ${READ_FROM_HEAD}
+
+    [INPUT]
+        Name                tail
+        Tag                 application.*
+        Path                /var/log/containers/fluent-bit*
+        Parser              docker
+        DB                  /var/fluent-bit/state/flb_log.db
+        Mem_Buf_Limit       5MB
+        Skip_Long_Lines     On
+        Refresh_Interval    10
+        Read_from_Head      ${READ_FROM_HEAD}
+
+    [INPUT]
+        Name                tail
+        Tag                 application.*
+        Path                /var/log/containers/cloudwatch-agent*
+        Docker_Mode         On
+        Docker_Mode_Flush   5
+        Docker_Mode_Parser  cwagent_firstline
+        Parser              docker
+        DB                  /var/fluent-bit/state/flb_cwagent.db
+        Mem_Buf_Limit       5MB
+        Skip_Long_Lines     On
+        Refresh_Interval    10
+        Read_from_Head      ${READ_FROM_HEAD}
+
+    [FILTER]
+        Name                kubernetes
+        Match               application.*
+        Kube_URL            https://kubernetes.default.svc:443
+        Kube_Tag_Prefix     application.var.log.containers.
+        Merge_Log           On
+        Merge_Log_Key       log_processed
+        K8S-Logging.Parser  On
+        K8S-Logging.Exclude Off
+        Labels              Off
+        Annotations         Off
+
+    [OUTPUT]
+        Name                cloudwatch_logs
+        Match               application.*
+        region              ${AWS_REGION}
+        log_group_name      /aws/containerinsights/${CLUSTER_NAME}/application
+        log_stream_prefix   ${HOST_NAME}-
+        auto_create_group   true
+        extra_user_agent    container-insights
+
+  dataplane-log.conf: |
+    [INPUT]
+        Name                systemd
+        Tag                 dataplane.systemd.*
+        Systemd_Filter      _SYSTEMD_UNIT=docker.service
+        Systemd_Filter      _SYSTEMD_UNIT=kubelet.service
+        DB                  /var/fluent-bit/state/systemd.db
+        Path                /var/log/journal
+        Read_From_Tail      ${READ_FROM_TAIL}
+
+    [INPUT]
+        Name                tail
+        Tag                 dataplane.tail.*
+        Path                /var/log/containers/aws-node*, /var/log/containers/kube-proxy*
+        Docker_Mode         On
+        Docker_Mode_Flush   5
+        Docker_Mode_Parser  container_firstline
+        Parser              docker
+        DB                  /var/fluent-bit/state/flb_dataplane_tail.db
+        Mem_Buf_Limit       50MB
+        Skip_Long_Lines     On
+        Refresh_Interval    10
+        Rotate_Wait         30
+        storage.type        filesystem
+        Read_from_Head      ${READ_FROM_HEAD}
+
+    [FILTER]
+        Name                modify
+        Match               dataplane.systemd.*
+        Rename              _HOSTNAME                   hostname
+        Rename              _SYSTEMD_UNIT               systemd_unit
+        Rename              MESSAGE                     message
+        Remove_regex        ^((?!hostname|systemd_unit|message).)*$
+
+    [FILTER]
+        Name                aws
+        Match               dataplane.*
+        imds_version        v1
+
+    [OUTPUT]
+        Name                cloudwatch_logs
+        Match               dataplane.*
+        region              ${AWS_REGION}
+        log_group_name      /aws/containerinsights/${CLUSTER_NAME}/dataplane
+        log_stream_prefix   ${HOST_NAME}-
+        auto_create_group   true
+        extra_user_agent    container-insights
+
+  host-log.conf: |
+    [INPUT]
+        Name                tail
+        Tag                 host.dmesg
+        Path                /var/log/dmesg
+        Parser              syslog
+        DB                  /var/fluent-bit/state/flb_dmesg.db
+        Mem_Buf_Limit       5MB
+        Skip_Long_Lines     On
+        Refresh_Interval    10
+        Read_from_Head      ${READ_FROM_HEAD}
+
+    [INPUT]
+        Name                tail
+        Tag                 host.messages
+        Path                /var/log/messages
+        Parser              syslog
+        DB                  /var/fluent-bit/state/flb_messages.db
+        Mem_Buf_Limit       5MB
+        Skip_Long_Lines     On
+        Refresh_Interval    10
+        Read_from_Head      ${READ_FROM_HEAD}
+
+    [INPUT]
+        Name                tail
+        Tag                 host.secure
+        Path                /var/log/secure
+        Parser              syslog
+        DB                  /var/fluent-bit/state/flb_secure.db
+        Mem_Buf_Limit       5MB
+        Skip_Long_Lines     On
+        Refresh_Interval    10
+        Read_from_Head      ${READ_FROM_HEAD}
+
+    [FILTER]
+        Name                aws
+        Match               host.*
+        imds_version        v1
+
+    [OUTPUT]
+        Name                cloudwatch_logs
+        Match               host.*
+        region              ${AWS_REGION}
+        log_group_name      /aws/containerinsights/${CLUSTER_NAME}/host
+        log_stream_prefix   ${HOST_NAME}.
+        auto_create_group   true
+        extra_user_agent    container-insights
+
+  parsers.conf: |
+    [PARSER]
+        Name                docker
+        Format              json
+        Time_Key            time
+        Time_Format         %Y-%m-%dT%H:%M:%S.%LZ
+
+    [PARSER]
+        Name                syslog
+        Format              regex
+        Regex               ^(?<time>[^ ]* {1,2}[^ ]* [^ ]*) (?<host>[^ ]*) (?<ident>[a-zA-Z0-9_\/\.\-]*)(?:\[(?<pid>[0-9]+)\])?(?:[^\:]*\:)? *(?<message>.*)$
+        Time_Key            time
+        Time_Format         %b %d %H:%M:%S
+
+    [PARSER]
+        Name                container_firstline
+        Format              regex
+        Regex               (?<log>(?<="log":")\S(?!\.).*?)(?<!\\)".*(?<stream>(?<="stream":").*?)".*(?<time>\d{4}-\d{1,2}-\d{1,2}T\d{2}:\d{2}:\d{2}\.\w*).*(?=})
+        Time_Key            time
+        Time_Format         %Y-%m-%dT%H:%M:%S.%LZ
+
+    [PARSER]
+        Name                cwagent_firstline
+        Format              regex
+        Regex               (?<log>(?<="log":")\d{4}[\/-]\d{1,2}[\/-]\d{1,2}[ T]\d{2}:\d{2}:\d{2}(?!\.).*?)(?<!\\)".*(?<stream>(?<="stream":").*?)".*(?<time>\d{4}-\d{1,2}-\d{1,2}T\d{2}:\d{2}:\d{2}\.\w*).*(?=})
+        Time_Key            time
+        Time_Format         %Y-%m-%dT%H:%M:%S.%LZ
+---
+# Source: amazon-cloudwatch/charts/container-insights/templates/fluent-bit-config-map.yaml
+apiVersion: v1
+data:
+  cluster.name: cloudwatch-example-cluster
+  logs.region: us-east-1
+  read.head: "On"
+  read.tail: "On"
+kind: ConfigMap
+metadata:
+  name: cluster-info
+  namespace: amazon-cloudwatch
+---
+# Source: amazon-cloudwatch/charts/container-insights/templates/otlp-config-map.yaml
+# Configuration for AWS OpenTelemetry collector daemon
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otlp-config
+  namespace: amazon-cloudwatch
+data:
+  otlp-config.yaml: |-
+    extensions:
+      health_check:
+
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:55681
+      awsxray:
+        endpoint: 0.0.0.0:2000
+        transport: udp
+        proxy_server:
+          endpoint: 0.0.0.0:2000
+      statsd:
+        endpoint: 0.0.0.0:8125 #default
+        aggregation_interval: 60s #default
+        enable_metric_type: false #default
+        timer_histogram_mapping: #default
+          - statsd_type: "histogram" #default
+            observer_type: "gauge" #default
+          - statsd_type: "timer" #default
+            observer_type: "gauge" #default
+      prometheus:
+        config:
+          global:
+            scrape_interval: 15s
+            scrape_timeout: 10s
+          scrape_configs:
+          - job_name: 'kubernetes-pods'
+            sample_limit: 10000
+            kubernetes_sd_configs:
+            - role: pod
+            tls_config:
+              ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+              insecure_skip_verify: true
+            bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+            relabel_configs:
+            - action: keep
+              regex: true
+              source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+            - action: labelmap
+              regex: __meta_kubernetes_pod_label_(.+)
+            - action: replace
+              source_labels: [__meta_kubernetes_namespace]
+              target_label: Namespace
+            - action: replace
+              source_labels: [__meta_kubernetes_pod_name]
+              target_label: pod_name
+            - action: replace
+              source_labels: [__meta_kubernetes_pod_container_name]
+              target_label: container_name
+            - action: replace
+              source_labels: [__meta_kubernetes_pod_controller_name]
+              target_label: pod_controller_name
+            - action: replace
+              source_labels: [__meta_kubernetes_pod_controller_kind]
+              target_label: pod_controller_kind
+            - action: replace
+              source_labels: [__meta_kubernetes_pod_phase]
+              target_label: pod_phase
+            metric_relabel_configs:
+            - action: drop
+              source_labels: [__name__]
+              regex: 'go_gc_duration_seconds.*'
+          - job_name: 'kubernetes-service-endpoints'
+            kubernetes_sd_configs:
+            - role: endpoints
+            tls_config:
+              ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+              insecure_skip_verify: true
+            bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+            relabel_configs:
+            - action: keep
+              regex: true
+              source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+            - action: replace
+              regex: (https?)
+              source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scheme]
+              target_label: __scheme__
+            - action: replace
+              regex: (.+)
+              source_labels: [__meta_kubernetes_service_annotation_prometheus_io_path]
+              target_label: __metrics_path__
+            - action: replace
+              regex: ([^:]+)(?::\d+)?;(\d+)
+              replacement: $$1:$$2
+              source_labels: [__address__,__meta_kubernetes_service_annotation_prometheus_io_port]
+              target_label: __address__
+            - action: labelmap
+              regex: __meta_kubernetes_pod_label_(.+)
+            - action: replace
+              source_labels: [__meta_kubernetes_namespace]
+              target_label: Namespace
+            - action: replace
+              source_labels: [__meta_kubernetes_service_name]
+              target_label: Service
+            - action: replace
+              source_labels: [__meta_kubernetes_pod_node_name]
+              target_label: kubernetes_node
+            - action: replace
+              source_labels: [__meta_kubernetes_pod_name]
+              target_label: pod_name
+            - action: replace
+              source_labels: [__meta_kubernetes_pod_container_name]
+              target_label: container_name
+            metric_relabel_configs:
+            - source_labels: [__name__]
+              regex: 'go_gc_duration_seconds.*'
+              action: drop
+
+    processors:
+      batch/traces:
+        timeout: 1s
+        send_batch_size: 50
+      batch/metrics:
+        timeout: 60s
+
+    exporters:
+      awsxray:
+      awsemf:
+        namespace: EKS/AWSOTel/Application
+        log_group_name: '/aws/eks/application/metrics'
+        region: 'us-east-1'
+
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp,awsxray]
+          processors: [batch/traces]
+          exporters: [awsxray]
+        metrics:
+          receivers: [otlp,statsd,prometheus]
+          processors: [batch/metrics]
+          exporters: [awsemf]
+
+      extensions: [health_check]
+---
+# Source: amazon-cloudwatch/charts/container-insights/templates/metricsserver.yml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    k8s-app: metrics-server
+  name: metrics-server
+  namespace: kube-system
+---
+# Source: amazon-cloudwatch/charts/cloudwatch-alarms-operator/templates/crds.yaml
+apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  name: cloudwatchmetricalarms.cw.aws.com
+spec:
+  group: cw.aws.com
+  version: v1
+  versions:
+    - name: v1
+      served: true
+      storage: true
+  scope: Namespaced
+  names:
+    kind: cloudwatchmetricalarm
+    plural: cloudwatchmetricalarms
+    singular: cloudwatchmetricalarm
+    shortNames:
+      - cwma
+      - cwmas
+  preserveUnknownFields: true
+---
+# Source: amazon-cloudwatch/charts/cloudwatch-alarms-operator/templates/crds.yaml
+apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  name: cloudwatchcompositalarms.cw.aws.com
+spec:
+  group: cw.aws.com
+  version: v1
+  versions:
+    - name: v1
+      served: true
+      storage: true
+  scope: Namespaced
+  names:
+    kind: cloudwatchcompositalarm
+    plural: cloudwatchcompositalarms
+    singular: cloudwatchcompositalarm
+    shortNames:
+      - cwca
+      - cwcas
+  preserveUnknownFields: true
+---
+# Source: amazon-cloudwatch/charts/k8s-cloudwatch-adapter/templates/crds.yaml
+apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  name: externalmetrics.metrics.aws
+  labels:
+    helm.sh/chart: k8s-cloudwatch-adapter-0.1.0
+    app.kubernetes.io/name: k8s-cloudwatch-adapter
+    app.kubernetes.io/instance: RELEASE-NAME
+    app.kubernetes.io/component: crd
+    app.kubernetes.io/version: "1.231221.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  group: metrics.aws
+  version: v1alpha1
+  names:
+    kind: ExternalMetric
+    plural: externalmetrics
+    singular: externalmetric
+    shortNames:
+      - em
+  scope: Namespaced
+---
+# Source: amazon-cloudwatch/charts/cloudwatch-alarms-operator/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cloudwatchalarm-controller-role
+  labels:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/name: cloudwatchalarm-controller
+rules:
+- apiGroups:
+  - cw.aws.com
+  resources:
+  - cloudwatchcompositalarms
+  - cloudwatchmetricalarms
+  verbs:
+  - '*'
+- apiGroups: [apiextensions.k8s.io]
+  resources: [customresourcedefinitions]
+  verbs: [list, watch]
+- apiGroups: [""]
+  resources: [namespaces]
+  verbs: [list, watch]
+- apiGroups: [admissionregistration.k8s.io/v1, admissionregistration.k8s.io/v1beta1]
+  resources: [validatingwebhookconfigurations, mutatingwebhookconfigurations]
+  verbs: [create, patch]
+- apiGroups: [""]
+  resources: [events]
+  verbs: [create, patch, list, watch, delete]
+---
+# Source: amazon-cloudwatch/charts/container-insights/templates/container-insights-rbac.yaml
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: cloudwatch-agent-role
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "nodes", "endpoints"]
+    verbs: ["list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["list", "watch"]
+  - apiGroups: [""]
+    resources: ["nodes/proxy"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["nodes/stats", "configmaps", "events"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["cwagent-clusterleader"]
+    verbs: ["get","update"]
+---
+# Source: amazon-cloudwatch/charts/container-insights/templates/fluent-bit-rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: fluent-bit-role
+rules:
+  - nonResourceURLs:
+      - /metrics
+    verbs:
+      - get
+  - apiGroups: [""]
+    resources:
+      - namespaces
+      - pods
+      - pods/logs
+    verbs: ["get", "list", "watch"]
+---
+# Source: amazon-cloudwatch/charts/container-insights/templates/metricsserver.yml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    k8s-app: metrics-server
+    rbac.authorization.k8s.io/aggregate-to-admin: "true"
+    rbac.authorization.k8s.io/aggregate-to-edit: "true"
+    rbac.authorization.k8s.io/aggregate-to-view: "true"
+  name: system:aggregated-metrics-reader
+rules:
+- apiGroups:
+  - metrics.k8s.io
+  resources:
+  - pods
+  - nodes
+  verbs:
+  - get
+  - list
+  - watch
+---
+# Source: amazon-cloudwatch/charts/container-insights/templates/metricsserver.yml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    k8s-app: metrics-server
+  name: system:metrics-server
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  - nodes
+  - nodes/stats
+  - namespaces
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+---
+# Source: amazon-cloudwatch/charts/k8s-cloudwatch-adapter/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    helm.sh/chart: k8s-cloudwatch-adapter-0.1.0
+    app.kubernetes.io/name: k8s-cloudwatch-adapter
+    app.kubernetes.io/instance: RELEASE-NAME
+    app.kubernetes.io/component: adapter
+    app.kubernetes.io/version: "1.231221.0"
+    app.kubernetes.io/managed-by: Helm
+  name: k8s-cloudwatch-adapter:resource-reader
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  - pods
+  - services
+  - configmaps
+  verbs:
+  - get
+  - list
+- apiGroups:
+  - metrics.aws
+  resources:
+  - externalmetrics
+  verbs: ["*"]
+---
+# Source: amazon-cloudwatch/charts/k8s-cloudwatch-adapter/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    helm.sh/chart: k8s-cloudwatch-adapter-0.1.0
+    app.kubernetes.io/name: k8s-cloudwatch-adapter
+    app.kubernetes.io/instance: RELEASE-NAME
+    app.kubernetes.io/component: adapter
+    app.kubernetes.io/version: "1.231221.0"
+    app.kubernetes.io/managed-by: Helm
+  name: k8s-cloudwatch-adapter:external-metrics-reader
+rules:
+- apiGroups:
+  - external.metrics.k8s.io
+  resources: ["*"]
+  verbs: ["*"]
+---
+# Source: amazon-cloudwatch/charts/cloudwatch-alarms-operator/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cloudwatchalarm-controller-rolebinding
+  labels:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/name: cloudwatchalarm-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cloudwatchalarm-controller-role
+subjects:
+- kind: ServiceAccount
+  name: cloudwatchalarm-controller
+  namespace: amazon-cloudwatch
+---
+# Source: amazon-cloudwatch/charts/container-insights/templates/container-insights-rbac.yaml
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: cloudwatch-agent-role-binding
+subjects:
+  - kind: ServiceAccount
+    name: cloudwatch-agent
+    namespace: amazon-cloudwatch
+roleRef:
+  kind: ClusterRole
+  name: cloudwatch-agent-role
+  apiGroup: rbac.authorization.k8s.io
+---
+# Source: amazon-cloudwatch/charts/container-insights/templates/fluent-bit-rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: fluent-bit-role-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: fluent-bit-role
+subjects:
+  - kind: ServiceAccount
+    name: fluent-bit
+    namespace: amazon-cloudwatch
+---
+# Source: amazon-cloudwatch/charts/container-insights/templates/metricsserver.yml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    k8s-app: metrics-server
+  name: metrics-server:system:auth-delegator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+- kind: ServiceAccount
+  name: metrics-server
+  namespace: kube-system
+---
+# Source: amazon-cloudwatch/charts/container-insights/templates/metricsserver.yml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    k8s-app: metrics-server
+  name: system:metrics-server
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:metrics-server
+subjects:
+- kind: ServiceAccount
+  name: metrics-server
+  namespace: kube-system
+---
+# Source: amazon-cloudwatch/charts/container-insights/templates/otlp-rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: otelcol-rbac
+subjects:
+- kind: ServiceAccount
+  name: otlp-daemon
+  namespace: amazon-cloudwatch
+roleRef:
+  kind: ClusterRole
+  name: cluster-admin
+  apiGroup: rbac.authorization.k8s.io
+---
+# Source: amazon-cloudwatch/charts/k8s-cloudwatch-adapter/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    helm.sh/chart: k8s-cloudwatch-adapter-0.1.0
+    app.kubernetes.io/name: k8s-cloudwatch-adapter
+    app.kubernetes.io/instance: RELEASE-NAME
+    app.kubernetes.io/component: adapter
+    app.kubernetes.io/version: "1.231221.0"
+    app.kubernetes.io/managed-by: Helm
+  name: k8s-cloudwatch-adapter:external-metrics-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: k8s-cloudwatch-adapter:external-metrics-reader
+subjects:
+- kind: ServiceAccount
+  name: horizontal-pod-autoscaler
+  namespace: kube-system
+---
+# Source: amazon-cloudwatch/charts/k8s-cloudwatch-adapter/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    helm.sh/chart: k8s-cloudwatch-adapter-0.1.0
+    app.kubernetes.io/name: k8s-cloudwatch-adapter
+    app.kubernetes.io/instance: RELEASE-NAME
+    app.kubernetes.io/component: adapter
+    app.kubernetes.io/version: "1.231221.0"
+    app.kubernetes.io/managed-by: Helm
+  name: k8s-cloudwatch-adapter:system:auth-delegator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+- kind: ServiceAccount
+  name: k8s-cloudwatch-adapter
+  namespace: amazon-cloudwatch
+---
+# Source: amazon-cloudwatch/charts/k8s-cloudwatch-adapter/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    helm.sh/chart: k8s-cloudwatch-adapter-0.1.0
+    app.kubernetes.io/name: k8s-cloudwatch-adapter
+    app.kubernetes.io/instance: RELEASE-NAME
+    app.kubernetes.io/component: adapter
+    app.kubernetes.io/version: "1.231221.0"
+    app.kubernetes.io/managed-by: Helm
+  name: k8s-cloudwatch-adapter:resource-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: k8s-cloudwatch-adapter:resource-reader
+subjects:
+- kind: ServiceAccount
+  name: k8s-cloudwatch-adapter
+  namespace: amazon-cloudwatch
+---
+# Source: amazon-cloudwatch/charts/container-insights/templates/otlp-rbac.yaml
+# create role binding for OpenTelemetry daemon to read config map
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: otlp-role
+  namespace: amazon-cloudwatch
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+---
+# Source: amazon-cloudwatch/charts/container-insights/templates/metricsserver.yml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    k8s-app: metrics-server
+  name: metrics-server-auth-reader
+  namespace: kube-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: extension-apiserver-authentication-reader
+subjects:
+- kind: ServiceAccount
+  name: metrics-server
+  namespace: kube-system
+---
+# Source: amazon-cloudwatch/charts/container-insights/templates/otlp-rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: otlp-role-binding
+  namespace: amazon-cloudwatch
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: otlp-role
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: Group
+  name: system:serviceaccounts
+---
+# Source: amazon-cloudwatch/charts/k8s-cloudwatch-adapter/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    helm.sh/chart: k8s-cloudwatch-adapter-0.1.0
+    app.kubernetes.io/name: k8s-cloudwatch-adapter
+    app.kubernetes.io/instance: RELEASE-NAME
+    app.kubernetes.io/component: adapter
+    app.kubernetes.io/version: "1.231221.0"
+    app.kubernetes.io/managed-by: Helm
+  name: k8s-cloudwatch-adapter-auth-reader
+  namespace: kube-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: extension-apiserver-authentication-reader
+subjects:
+- kind: ServiceAccount
+  name: k8s-cloudwatch-adapter
+  namespace: amazon-cloudwatch
+---
+# Source: amazon-cloudwatch/charts/cloudwatch-alarms-operator/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: cloudwatchalarm-svc
+  namespace: amazon-cloudwatch
+spec:
+  sessionAffinity: None
+  type: ClusterIP
+  ports:
+  - port: 80
+    protocol: TCP
+    targetPort: 8080
+  selector:
+    app: cloudwatchalarm
+    role: operator
+---
+# Source: amazon-cloudwatch/charts/container-insights/templates/metricsserver.yml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    k8s-app: metrics-server
+  name: metrics-server
+  namespace: kube-system
+spec:
+  ports:
+  - name: https
+    port: 443
+    protocol: TCP
+    targetPort: https
+  selector:
+    k8s-app: metrics-server
+---
+# Source: amazon-cloudwatch/charts/container-insights/templates/otlp-service.yaml
+# k8s service definition for AWS Open Telemetry daemon headless service
+apiVersion: v1
+kind: Service
+metadata:
+  name: otlp-service
+  namespace: amazon-cloudwatch
+spec:
+  selector:
+    app: otlp-daemon
+  clusterIP: None
+  ports:
+    - name: otlp-http
+      port: 55681
+      protocol: TCP
+    - name: otlp-grpc
+      port: 4317
+      protocol: TCP
+    - name: otlp-statsd
+      port: 8125
+      protocol: UDP
+---
+# Source: amazon-cloudwatch/charts/k8s-cloudwatch-adapter/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    helm.sh/chart: k8s-cloudwatch-adapter-0.1.0
+    app.kubernetes.io/name: k8s-cloudwatch-adapter
+    app.kubernetes.io/instance: RELEASE-NAME
+    app.kubernetes.io/component: adapter
+    app.kubernetes.io/version: "1.231221.0"
+    app.kubernetes.io/managed-by: Helm
+  name: RELEASE-NAME-k8s-cloudwatch-adapter
+  namespace: amazon-cloudwatch
+spec:
+  ports:
+  - name: https
+    port: 443
+    targetPort: 6443
+  - name: http
+    port: 80
+    targetPort: 8080
+  selector:
+    app.kubernetes.io/name: k8s-cloudwatch-adapter
+    app.kubernetes.io/instance: RELEASE-NAME
+    app.kubernetes.io/component: adapter
+---
+# Source: amazon-cloudwatch/charts/container-insights/templates/container-insights-daemonset.yaml
+# deploy cwagent as daemonset
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: cloudwatch-agent
+  namespace: amazon-cloudwatch
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  selector:
+    matchLabels:
+      name: cloudwatch-agent
+  template:
+    metadata:
+      labels:
+        name: cloudwatch-agent
+    spec:
+      containers:
+        - name: cloudwatch-agent
+          image: amazon/cloudwatch-agent:1.247348.0b251302
+          # ports:
+          #   - containerPort: 8125
+          #     hostPort: 8125
+          #     protocol: UDP
+          resources:
+            limits:
+              cpu:  200m
+              memory: 200Mi
+            requests:
+              cpu: 200m
+              memory: 200Mi
+          # Please don't change below envs
+          env:
+            - name: HOST_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            - name: HOST_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: K8S_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: CI_VERSION
+              value: "k8s/1.0.0"
+          # Please don't change the mountPath
+          volumeMounts:
+            - name: cwagentconfig
+              mountPath: /etc/cwagentconfig
+            - name: rootfs
+              mountPath: /rootfs
+              readOnly: true
+            - name: dockersock
+              mountPath: /var/run/docker.sock
+              readOnly: true
+            - name: varlibdocker
+              mountPath: /var/lib/docker
+              readOnly: true
+            - name: sys
+              mountPath: /sys
+              readOnly: true
+            - name: devdisk
+              mountPath: /dev/disk
+              readOnly: true
+      volumes:
+        - name: cwagentconfig
+          configMap:
+            name: cwagentconfig
+        - name: rootfs
+          hostPath:
+            path: /
+        - name: dockersock
+          hostPath:
+            path: /var/run/docker.sock
+        - name: varlibdocker
+          hostPath:
+            path: /var/lib/docker
+        - name: sys
+          hostPath:
+            path: /sys
+        - name: devdisk
+          hostPath:
+            path: /dev/disk/
+      terminationGracePeriodSeconds: 60
+      serviceAccountName: cloudwatch-agent
+---
+# Source: amazon-cloudwatch/charts/container-insights/templates/fluent-bit-daemonset.yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: fluent-bit-cloudwatch
+  namespace: amazon-cloudwatch
+  annotations:
+    reloader.stakater.com/auto: "true"
+  labels:
+    k8s-app: fluent-bit-cloudwatch
+    version: v1
+    kubernetes.io/cluster-service: "true"
+spec:
+  selector:
+    matchLabels:
+      k8s-app: fluent-bit-cloudwatch
+  template:
+    metadata:
+      labels:
+        k8s-app: fluent-bit-cloudwatch
+        version: v1
+        kubernetes.io/cluster-service: "true"
+    spec:
+      serviceAccountName: fluent-bit
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: fluent-bit-cloudwatch
+          image: amazon/aws-for-fluent-bit:2.15.1
+          env:
+            - name: AWS_REGION
+              valueFrom:
+                configMapKeyRef:
+                  name: cluster-info
+                  key: logs.region
+            - name: CLUSTER_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: cluster-info
+                  key: cluster.name
+            - name: READ_FROM_HEAD
+              valueFrom:
+                configMapKeyRef:
+                  name: cluster-info
+                  key: read.head
+            - name: READ_FROM_TAIL
+              valueFrom:
+                configMapKeyRef:
+                  name: cluster-info
+                  key: read.tail
+            - name: HOST_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: CI_VERSION
+              value: "k8s/1.3.6"
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 200Mi
+            requests:
+              cpu: 500m
+              memory: 100Mi
+          volumeMounts:
+            # Please don't change below read-only permissions
+            - name: fluentbitstate
+              mountPath: /var/fluent-bit/state
+            - name: varlog
+              mountPath: /var/log
+              readOnly: true
+            - name: varlibdockercontainers
+              mountPath: /var/lib/docker/containers
+              readOnly: true
+            - name: fluent-bit-config
+              mountPath: /fluent-bit/etc/
+            - name: runlogjournal
+              mountPath: /run/log/journal
+              readOnly: true
+            - name: dmesg
+              mountPath: /var/log/dmesg
+              readOnly: true
+      volumes:
+        - name: fluentbitstate
+          hostPath:
+            path: /var/fluent-bit/state
+        - name: varlog
+          hostPath:
+            path: /var/log
+        - name: varlibdockercontainers
+          hostPath:
+            path: /var/lib/docker/containers
+        - name: fluent-bit-config
+          configMap:
+            name: fluent-bit-config
+        - name: runlogjournal
+          hostPath:
+            path: /run/log/journal
+        - name: dmesg
+          hostPath:
+            path: /var/log/dmesg
+---
+# Source: amazon-cloudwatch/charts/container-insights/templates/otlp-daemonset.yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: otlp-daemon
+  namespace: amazon-cloudwatch
+spec:
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: otlp-daemon
+  template:
+    metadata:
+      labels:
+        app: otlp-daemon
+    spec:
+      serviceAccountName: otlp-daemon
+      containers:
+        - name: otlp-daemon
+          image: public.ecr.aws/aws-observability/aws-otel-collector:latest
+          command:
+            - "/awscollector"
+            - "--config=/otlp-config/otlp-config.yaml"
+            - "--log-level=DEBUG"
+          resources:
+            limits:
+              cpu:  256m
+              memory: 512Mi
+            requests:
+              cpu: 32m
+              memory: 24Mi
+          ports:
+            - name: otlp-http
+              containerPort: 55681
+            - name: otlp-grpc
+              containerPort: 4317
+            - name: otlp-statsd
+              containerPort: 8125
+          volumeMounts:
+            - name: otlp-config-volume
+              mountPath: /otlp-config
+              readOnly: true
+      volumes:
+        - name: otlp-config-volume
+          configMap:
+            name: "otlp-config"
+---
+# Source: amazon-cloudwatch/charts/cloudwatch-alarms-operator/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudwatchalarm-controller
+  namespace: amazon-cloudwatch
+  labels:
+    app: cloudwatchalarm
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: cloudwatchalarm
+      role: operator
+  template:
+    metadata:
+      labels:
+        app: cloudwatchalarm
+        role: operator
+      annotations:
+        prometheus.io/scrape: 'false'
+    spec:
+      serviceAccountName: cloudwatchalarm-controller
+      containers:
+        - name: cloudwatchalarm
+          image: public.ecr.aws/o5o3j7b7/cw-alarm-operator
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 500m
+              memory: 500Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+---
+# Source: amazon-cloudwatch/charts/container-insights/templates/metricsserver.yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    k8s-app: metrics-server
+  name: metrics-server
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      k8s-app: metrics-server
+  strategy:
+    rollingUpdate:
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        k8s-app: metrics-server
+    spec:
+      containers:
+      - args:
+        - --cert-dir=/tmp
+        - --secure-port=443
+        - --kubelet-preferred-address-types=InternalIP,ExternalIP,Hostname
+        - --kubelet-use-node-status-port
+        - --metric-resolution=15s
+        image: k8s.gcr.io/metrics-server/metrics-server:v0.5.0
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /livez
+            port: https
+            scheme: HTTPS
+          periodSeconds: 10
+        name: metrics-server
+        ports:
+        - containerPort: 443
+          name: https
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /readyz
+            port: https
+            scheme: HTTPS
+          initialDelaySeconds: 20
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 100m
+            memory: 200Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+        volumeMounts:
+        - mountPath: /tmp
+          name: tmp-dir
+      nodeSelector:
+        kubernetes.io/os: linux
+      priorityClassName: system-cluster-critical
+      serviceAccountName: metrics-server
+      volumes:
+      - emptyDir: {}
+        name: tmp-dir
+---
+# Source: amazon-cloudwatch/charts/k8s-cloudwatch-adapter/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: k8s-cloudwatch-adapter
+    helm.sh/chart: k8s-cloudwatch-adapter-0.1.0
+    app.kubernetes.io/name: k8s-cloudwatch-adapter
+    app.kubernetes.io/instance: RELEASE-NAME
+    app.kubernetes.io/component: adapter
+    app.kubernetes.io/version: "1.231221.0"
+    app.kubernetes.io/managed-by: Helm
+  name: RELEASE-NAME-k8s-cloudwatch-adapter
+  namespace: amazon-cloudwatch
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: k8s-cloudwatch-adapter
+      app.kubernetes.io/instance: RELEASE-NAME
+      app.kubernetes.io/component: adapter
+  template:
+    metadata:
+      labels:
+        app: k8s-cloudwatch-adapter
+        app.kubernetes.io/name: k8s-cloudwatch-adapter
+        app.kubernetes.io/instance: RELEASE-NAME
+        app.kubernetes.io/component: adapter
+    spec:
+      serviceAccountName: k8s-cloudwatch-adapter
+      securityContext:
+        fsGroup: 65534
+      containers:
+      - name: RELEASE-NAME-k8s-cloudwatch-adapter
+        image: chankh/k8s-cloudwatch-adapter:v0.10.0
+        imagePullPolicy: "IfNotPresent"
+        args:
+        - /adapter
+        - --cert-dir=/tmp
+        - --logtostderr=true
+        - --secure-port=6443
+        - --v=2
+        ports:
+        - containerPort: 6443
+          name: https
+        - containerPort: 8080
+          name: http
+        volumeMounts:
+        - mountPath: /tmp
+          name: temp-vol
+        resources:
+          limits:
+            cpu: 1000m
+            memory: 256Mi
+          requests:
+            cpu: 500m
+            memory: 256Mi
+      volumes:
+      - name: temp-vol
+        emptyDir: {}
+---
+# Source: amazon-cloudwatch/charts/container-insights/templates/metricsserver.yml
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  labels:
+    k8s-app: metrics-server
+  name: v1beta1.metrics.k8s.io
+spec:
+  group: metrics.k8s.io
+  groupPriorityMinimum: 100
+  insecureSkipTLSVerify: true
+  service:
+    name: metrics-server
+    namespace: kube-system
+  version: v1beta1
+  versionPriority: 100
+---
+# Source: amazon-cloudwatch/charts/k8s-cloudwatch-adapter/templates/api_service.yaml
+apiVersion: apiregistration.k8s.io/v1beta1
+kind: APIService
+metadata:
+  name: v1beta1.external.metrics.k8s.io
+  namespace: amazon-cloudwatch
+  labels:
+    helm.sh/chart: k8s-cloudwatch-adapter-0.1.0
+    app.kubernetes.io/name: k8s-cloudwatch-adapter
+    app.kubernetes.io/instance: RELEASE-NAME
+    app.kubernetes.io/component: adapter
+    app.kubernetes.io/version: "1.231221.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  service:
+    name: RELEASE-NAME-k8s-cloudwatch-adapter
+    namespace: amazon-cloudwatch
+  group: external.metrics.k8s.io
+  version: v1beta1
+  insecureSkipTLSVerify: true
+  groupPriorityMinimum: 100
+  versionPriority: 100
