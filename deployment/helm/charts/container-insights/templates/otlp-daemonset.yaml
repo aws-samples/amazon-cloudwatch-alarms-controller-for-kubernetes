@@ -22,7 +22,6 @@ spec:
           command:
             - "/awscollector"
             - "--config=/otlp-config/otlp-config.yaml"
-            - "--log-level=DEBUG"
           resources:
             limits:
               cpu:  256m

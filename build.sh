@@ -1,12 +1,12 @@
-aws ecr-public get-login-password | docker login --username AWS --password-stdin public.ecr.aws
+aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
 
-CW_ALARM_OPERATOR=`aws ecr-public create-repository \
+CW_ALARM_OPERATOR=`aws ecr-public create-repository --region us-east-1 \
     --repository-name cw-alarm-operator | jq ".repository.repositoryUri" | sed -e 's/^"//' -e 's/"$//'`
 
-OTLP_TEST_PRODUCER=`aws ecr-public create-repository \
+OTLP_TEST_PRODUCER=`aws ecr-public create-repository --region us-east-1 \
     --repository-name otlp-test-producer | jq ".repository.repositoryUri" | sed -e 's/^"//' -e 's/"$//'`
 
-OTLP_TEST_CONSUMER=`aws ecr-public create-repository \
+OTLP_TEST_CONSUMER=`aws ecr-public create-repository --region us-east-1 \
     --repository-name otlp-test-consumer | jq ".repository.repositoryUri" | sed -e 's/^"//' -e 's/"$//'`
 
 echo $CW_ALARM_OPERATOR
