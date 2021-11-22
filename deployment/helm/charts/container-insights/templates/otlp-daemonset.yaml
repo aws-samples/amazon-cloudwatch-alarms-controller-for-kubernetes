@@ -18,7 +18,7 @@ spec:
       serviceAccountName: otlp-daemon
       containers:
         - name: otlp-daemon
-          image: public.ecr.aws/aws-observability/aws-otel-collector:latest
+          image: public.ecr.aws/aws-observability/aws-otel-collector:v0.14.1
           command:
             - "/awscollector"
             - "--config=/otlp-config/otlp-config.yaml"
